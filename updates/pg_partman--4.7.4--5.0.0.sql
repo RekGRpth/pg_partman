@@ -1,3 +1,17 @@
+-- IMPORTANT NOTE: The initial version of pg_partman 5 had to be split into two updates due to changing both the data in the config table as well as adding constraints on that data. Depending on the data contained in the config table, doing this in a single-transaction update may not work (you may see an error about pending trigger events). If this is the case, please update to version 5.0.1 in a distinct transaction from your update to 5.0.0. Example:
+
+    /*
+        BEGIN;
+        ALTER EXTENSION pg_partman UPDATE TO '5.0.0';
+        COMMIT;
+
+        BEGIN;
+        ALTER EXTENSION pg_partman UPDATE TO '5.0.1';
+        COMMIT;
+    */
+
+-- Update 5.0.1 MUST be installed for version 5.x of pg_partman to work properly. As long as these updates are run within a few seconds of each other, there should be no issues.
+
 -- SEE CHANGELOG.md for all notes and details on this update
 
 -- #### Ugrade exceptions ####
@@ -264,7 +278,7 @@ CREATE TABLE @extschema@.part_config_sub (
     , sub_default_table boolean default true
     , sub_date_trunc_interval TEXT
     , CONSTRAINT part_config_sub_pkey PRIMARY KEY (sub_parent)
-    , CONSTRAINT part_config_sub_sub_parent_fkey FOREIGN KEY (sub_parent) REFERENCES @extschema@.part_config (parent_table) ON DELETE CASCADE ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED
+    , CONSTRAINT part_config_sub_sub_parent_fkey FOREIGN KEY (sub_parent) REFERENCES @extschema@.part_config (parent_table) ON DELETE CASCADE ON UPDATE CASCADE
     , CONSTRAINT positive_premake_check CHECK (sub_premake > 0)
 );
 SELECT pg_catalog.pg_extension_config_dump('@extschema@.part_config_sub'::regclass, '');
@@ -313,7 +327,6 @@ SELECT
     , sub_date_trunc_interval
     , sub_ignore_default_data
 FROM @extschema@.part_config_sub_pre_500_data;
-
 
 ALTER TABLE @extschema@.part_config ADD CONSTRAINT control_constraint_col_chk CHECK ((constraint_cols @> ARRAY[control]) <> true);
 ALTER TABLE @extschema@.part_config_sub ADD CONSTRAINT control_constraint_col_chk CHECK ((sub_constraint_cols @> ARRAY[sub_control]) <> true);
