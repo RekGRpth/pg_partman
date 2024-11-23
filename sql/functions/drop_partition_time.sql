@@ -18,6 +18,7 @@ ex_message                          text;
 v_adv_lock                          boolean;
 v_control                           text;
 v_control_type                      text;
+v_time_encoder                      text;
 v_count                             int;
 v_drop_count                        int := 0;
 v_epoch                             text;
@@ -58,6 +59,7 @@ END IF;
 IF p_retention IS NULL THEN
     SELECT
         control
+        , time_encoder
         , partition_interval::interval
         , epoch
         , retention::interval
@@ -68,6 +70,7 @@ IF p_retention IS NULL THEN
         , jobmon
     INTO
         v_control
+        , v_time_encoder
         , v_partition_interval
         , v_epoch
         , v_retention
@@ -111,8 +114,8 @@ END IF;
 
 SELECT general_type INTO v_control_type FROM @extschema@.check_control_type(v_parent_schema, v_parent_tablename, v_control);
 IF v_control_type <> 'time' THEN
-    IF (v_control_type = 'id' AND v_epoch = 'none') OR v_control_type <> 'id' THEN
-        RAISE EXCEPTION 'Cannot run on partition set without time based control column or epoch flag set with an id column. Found control: %, epoch: %', v_control_type, v_epoch;
+    IF (v_control_type = 'id' AND v_epoch = 'none') OR v_control_type <> 'id' OR (v_control_type IN ('text', 'uuid') AND v_time_encoder IS NULL) THEN
+        RAISE EXCEPTION 'Cannot run on partition set without time based control column, an epoch flag set with an id column or time_encoder set with text column. Found control: %, epoch: %', v_control_type, v_epoch;
     END IF;
 END IF;
 
@@ -156,7 +159,7 @@ LOOP
      SELECT child_start_time INTO v_partition_timestamp FROM @extschema@.show_partition_info(v_row.partition_schemaname||'.'||v_row.partition_tablename
         , v_partition_interval::text
         , p_parent_table);
-    -- Add one interval since partition names contain the start of the constraint period
+    -- Add one interval since partition lower boundary is the start of the constraint period
     IF (v_partition_timestamp + v_partition_interval) < (p_reference_timestamp - v_retention) THEN
 
         -- Do not allow final partition to be dropped if it is not a sub-partition parent

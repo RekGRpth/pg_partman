@@ -72,7 +72,7 @@ CREATE SCHEMA partman;
 CREATE EXTENSION pg_partman SCHEMA partman;
 ```
 
-pg_partman does not require a superuser to run, but currently still requires it to be installed. If not using a superuser, it is recommended that a dedicated role is created for running pg_partman functions and to be the owner of all partition sets that pg_partman maintains. At a minimum this role will need the following privileges (assuming pg_partman is installed to the `partman` schema and that dedicated role is called `partman_user`):
+pg_partman does not require a superuser to run nor to be installed (see [Extension Files](https://www.postgresql.org/docs/current/extend-extensions.html#EXTEND-EXTENSIONS-FILES) section of upstream docs) . If not using a superuser, it is recommended that a dedicated role is created for running pg_partman functions and to be the owner of all partition sets that pg_partman maintains. At a minimum this role will need the following privileges (assuming pg_partman is installed to the `partman` schema and that dedicated role is called `partman_user`):
 
 ```sql
 CREATE ROLE partman_user WITH LOGIN;

@@ -1,6 +1,7 @@
 -- ########## ID LIST TESTS (increment 1) ##########
 -- Additional tests:
     -- pre-created template table and passing to create_parent. Should allow indexes to be made for initial children.
+    -- bigint (to account for difference in int vs bigint in partition expression)
 
 \set ON_ERROR_ROLLBACK 1
 \set ON_ERROR_STOP true
@@ -14,7 +15,7 @@ CREATE SCHEMA partman_retention_test;
 
 CREATE TABLE partman_test.id_taptest_table
     (col1 bigint
-        , col2 int NOT NULL
+        , col2 bigint NOT NULL
         , col3 timestamptz DEFAULT now()
         , col4 text)
     PARTITION BY LIST (col2);

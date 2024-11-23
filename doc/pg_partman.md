@@ -195,6 +195,8 @@ create_parent(
     , p_template_table text DEFAULT NULL
     , p_jobmon boolean DEFAULT true
     , p_date_trunc_interval text DEFAULT NULL
+    , p_time_encoder text DEFAULT NULL
+    , p_time_decoder text DEFAULT NULL
 )
 RETURNS boolean
 ```
@@ -203,20 +205,22 @@ RETURNS boolean
  * An ACCESS EXCLUSIVE lock is taken on the parent table during the running of this function. No data is moved when running this function, so lock should be brief
  * A default partition and template table are created by default unless otherwise configured
  * `p_parent_table` - the existing parent table. MUST be schema qualified, even if in public schema
- * `p_control` - the column that the partitioning will be based on. Must be a time or integer based column
+ * `p_control` - the column that the partitioning will be based on. Must be a time, integer, text or uuid based column. When control is of type text/uuid, p_time_encoder and p_time_decoder must be set.
  * `p_interval` - the time or integer range interval for each partition. No matter the partitioning type, value must be given as text.
     + *\<interval\>*      - Any valid value for the interval data type. Do not type cast the parameter value, just leave as text.
     + *\<integer\>*       - For ID based partitions, the integer value range of the ID that should be set per partition. Enter this as an integer in text format ('100' not 100). If the interval is >=2, then the `p_type` must be `range`. If the interval equals 1, then the `p_type` must be `list`. Also note that while numeric values are supported for id-based partitioning, the interval must still be a whole number integer.
  * `p_type` - the type of partitioning to be done. Currently only **range** and **list** are supported. See `p_interval` parameter for special conditions concerning type.
- * `p_epoch` - tells `pg_partman` that the control column is an integer type, but actually represents and epoch time value. Valid values for this option are: 'seconds', 'milliseconds', 'nanoseconds', and 'none'. The default is 'none'. All table names will be time-based. In addition to a normal index on the control column, be sure you create a functional, time-based index on the control column (to_timestamp(controlcolumn)) as well so this works efficiently.
+ * `p_epoch` - tells `pg_partman` that the control column is an integer type, but actually represents and epoch time value. Valid values for this option are: 'seconds', 'milliseconds', 'microseconds', 'nanoseconds', and 'none'. The default is 'none'. All table names will be time-based. In addition to a normal index on the control column, be sure you create a functional, time-based index on the control column (to_timestamp(controlcolumn)) as well so this works efficiently.
  * `p_premake` - is how many additional partitions to always stay ahead of the current partition. Default value is 4. This will keep at minimum 5 partitions made, including the current one. For example, if today was Sept 6th, and `premake` was set to 4 for a daily partition, then partitions would be made for the 6th as well as the 7th, 8th, 9th and 10th. Note some intervals may occasionally cause an extra partition to be premade or one to be missed due to leap years, differing month lengths, etc. This usually won't hurt anything and should self-correct (see **About** section concerning timezones and non-UTC). If partitioning ever falls behind the `premake` value, normal running of `run_maintenance()` and data insertion should automatically catch things up.
  * `p_start_partition` - allows the first partition of a set to be specified instead of it being automatically determined. Must be a valid timestamp (for time-based) or positive integer (for id-based) value. Be aware, though, the actual parameter data type is text. For time-based partitioning, all partitions starting with the given timestamp up to CURRENT_TIMESTAMP (plus `premake`) will be created. For id-based partitioning, only the partition starting at the given value (plus `premake`) will be made. Note that for subpartitioning, this only applies during initial setup and not during ongoing maintenance.
  * `p_default_table` - boolean flag to determine whether a default table is created. Defaults to true.
  * `p_automatic_maintenance` - parameter to set whether maintenance is managed automatically when `run_maintenance()` is called without a table parameter or by the background worker process. Current valid values are "on" and "off". Default is "on". When set to off, `run_maintenance()` can still be called on an individual partition set by passing it as a parameter to the function.  See **run_maintenance** in Maintenance Functions section below for more info.
- * `p_constraint_cols` - an optional array parameter to set the columns that will have additional constraints set. See the **About** section above for more information on how this works and the **apply_constraints()** function for how this is used.
+ * `p_constraint_cols` - an optional array parameter to set the columns that will have additional constraints set. See the [Constraint Exclusion](#constraint-exclusion) section above for more information on how this works and the **apply_constraints()** function for how this is used.
  * `p_template_table` - If you do not pass a value here, a template table will automatically be made for you in same schema that pg_partman was installed to. If you pre-create a template table and pass its name here, then the initial child tables will obtain these properties discussed in the **About** section immediately.
  * `p_jobmon` - allow `pg_partman` to use the `pg_jobmon` extension to monitor that partitioning is working correctly. Defaults to TRUE.
  * `p_date_trunc_interval` - By default, pg_partman's time-based partitioning will truncate the child table starting values to line up at the beginning of typical boundaries (midnight for daily, day 1 for monthly, Jan 1 for yearly, etc). If a partitioning interval that does not fall on those boundaries is desired, this option may be required to ensure the child table has the expected boundaries (especially if you also set `p_start_partition`). The valid values allowed for this parameter are the interval values accepted by PostgreSQL's built-in `date_trunc()` function (day, week, month, etc). For example, if you set a 9-week interval, by default pg_partman would truncate the tables by month (since the interval is greater than one month but less than 1 year) and unexpectedly start on the first of the month in some cases. Set this parameter value to `week`, so that the child table start values are properly truncated on a weekly basis to line up with the 9-week interval. If you are using a custom time interval, please experiment with this option to get the expected set of child tables you desire or use a more typical partitioning interval to simplify partition management.
+ * `p_time_encoder` - name of function that encodes a timestamp into a string representing your partition bounds. Setting this implicitly enables time based partitioning and is mandatory for text/uuid control column types. This enables paritioning tables using time based identifiers like uuidv7, ulid, snowflake ids and others. The function must handle NULL input safely. See test-time-daily.sql and test-uuid-daily for usage examples.
+ * `p_time_decoder` - name of function that decodes a text/uuid control value into a timestamp. Setting this implicitly enables time based partitioning and is mandatory for text/uuid control column types. This enables paritioning tables using time based identifiers like uuidv7, ulid, snowflake ids and others. The function must handle NULL input safely. See test-time-daily.sql and test-uuid-daily for usage examples. 
 
 
 <a id="create_sub_parent"></a>
@@ -234,6 +238,7 @@ create_sub_parent(
     , p_constraint_cols text[] DEFAULT NULL
     , p_jobmon boolean DEFAULT true
     , p_date_trunc_interval text DEFAULT NULL
+    , p_time_encoder text DEFAULT NULL
 )
 RETURNS boolean
 ```
@@ -246,6 +251,7 @@ RETURNS boolean
  * It is advised that you keep table names short for subpartition sets if you plan on relying on the table names for organization. The suffix added on to the end of a table name is always guaranteed to be there for whatever partition type is active for that set. Longer table names may cause the original parent table names to be truncated and possibly cut off the top level partitioning suffix. This cannot be controlled and ensures the lowest level partitioning suffix survives.
  * Note that for the first level of subpartitions, the `p_parent_table` argument you originally gave to `create_parent()` would be the exact same value you give to `create_sub_parent()`. If you need further subpartitioning, you would then start giving `create_sub_parent()` a different value (the child tables of the top level partition set).
  * The template table that is already set for the given p_top_parent will automatically be used.
+ * `p_time_encoder` - name of function that encodes a timestamp into a string representing your partition bounds. Setting this implicitly enables time based partitioning and is mandatory for text/uuid control column types. This enables paritioning tables using time based identifiers like uuidv7, ulid, snowflake ids and others. The function must handle NULL input safely. See test-time-daily.sql and test-uuid-daily for usage examples.
 
 
 <a id="partition_data_time"></a>
@@ -787,7 +793,7 @@ Stores all configuration data for partition sets managed by the extension.
  - `constraint_cols`
     - Array column that lists columns to have additional constraints applied. See **About** section for more information on how this feature works.
  - `optimize_constraint`
-    - Manages which old tables get additional constraints set if configured to do so. See **About** section for more info. Default 30.
+    - Manages which old tables get additional constraints set if configured to do so. This value is a count on the number of child tables backwards from the newest child table that contains data. The default value of 30 means that the constraints will be created on the the child table that is 30 behind the newest child table that contains data. See **About** section for more info.
  - `infinite_time_partitions`
     - By default, new partitions in a time-based set will not be created if new data is not inserted to keep an infinite amount of empty tables from being created.
     - If you'd still like new partitions to be made despite there being no new data, set this to TRUE.

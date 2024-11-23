@@ -17,6 +17,8 @@ v_child_schema          text;
 v_child_tablename       text;
 v_control               text;
 v_control_type          text;
+v_time_encoder          text;
+v_time_decoder          text;
 v_epoch                 text;
 v_exact_control_type    text;
 v_parent_table          text;
@@ -30,6 +32,11 @@ BEGIN
  * Passing the parent table argument slightly improves performance by avoiding a catalog lookup.
  * Passing an interval lets you set one different than the default configured one if desired.
  */
+
+SELECT time_encoder, time_decoder
+INTO v_time_encoder, v_time_decoder
+FROM @extschema@.part_config
+WHERE parent_table = p_parent_table;
 
 SELECT n.nspname, c.relname INTO v_child_schema, v_child_tablename
 FROM pg_catalog.pg_class c
@@ -93,7 +100,7 @@ IF v_partstrat = 'r' THEN
     AND n.nspname = v_child_schema;
 ELSIF v_partstrat = 'l' THEN
     SELECT (regexp_match(pg_get_expr(c.relpartbound, c.oid, true)
-        , $REGEX$FOR VALUES IN \(([^)])\)$REGEX$))[1]::text
+        , $REGEX$FOR VALUES IN \(([^)]+)\)$REGEX$))[1]::text
     INTO v_start_string
     FROM pg_catalog.pg_class c
     JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
@@ -103,10 +110,12 @@ ELSE
     RAISE EXCEPTION 'partman functions only work with list partitioning with integers and ranged partitioning with time or integers. Found partition strategy "%" for given partition set', v_partstrat;
 END IF;
 
-IF v_control_type = 'time' OR (v_control_type = 'id' AND v_epoch <> 'none') THEN
+IF v_control_type IN ('time', 'text', 'uuid') OR (v_control_type = 'id' AND v_epoch <> 'none') THEN
 
     IF v_control_type = 'time' THEN
         child_start_time := v_start_string::timestamptz;
+    ELSIF v_control_type IN ('text', 'uuid') THEN
+        EXECUTE format('SELECT %s(%s)', v_time_decoder, v_start_string) INTO child_start_time;
     ELSIF (v_control_type = 'id' AND v_epoch <> 'none') THEN
         -- bigint data type is stored as a single-quoted string in the partition expression. Must strip quotes for valid type-cast.
         v_start_string := trim(BOTH '''' FROM v_start_string);
@@ -114,6 +123,8 @@ IF v_control_type = 'time' OR (v_control_type = 'id' AND v_epoch <> 'none') THEN
             child_start_time := to_timestamp(v_start_string::double precision);
         ELSIF v_epoch = 'milliseconds' THEN
             child_start_time := to_timestamp((v_start_string::double precision) / 1000);
+        ELSIF v_epoch = 'microseconds' THEN
+            child_start_time := to_timestamp((v_start_string::double precision) / 1000000);
         ELSIF v_epoch = 'nanoseconds' THEN
             child_start_time := to_timestamp((v_start_string::double precision) / 1000000000);
         END IF;
@@ -130,10 +141,11 @@ IF v_control_type = 'time' OR (v_control_type = 'id' AND v_epoch <> 'none') THEN
 ELSIF v_control_type = 'id' THEN
 
     IF v_exact_control_type IN ('int8', 'int4', 'int2') THEN
-        child_start_id := trim(BOTH '''' FROM v_start_string)::bigint;
+        -- Have to do a trim here because of inconsistency in quoting different integer types. Ex: bigint boundary values are quoted but int values are not
+        child_start_id := trim(BOTH $QUOTE$''$QUOTE$ FROM v_start_string)::bigint;
     ELSIF v_exact_control_type = 'numeric' THEN
         -- cast to numeric then trunc to get rid of decimal without rounding
-        child_start_id := trunc(trim(BOTH '''' FROM v_start_string)::numeric)::bigint;
+        child_start_id := trunc(trim(BOTH $QUOTE$''$QUOTE$ FROM v_start_string)::numeric)::bigint;
     END IF;
 
     child_end_id := (child_start_id + v_partition_interval::bigint) - 1;

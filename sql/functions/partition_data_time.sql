@@ -1,4 +1,4 @@
-CREATE OR REPLACE FUNCTION @extschema@.partition_data_time(
+CREATE FUNCTION @extschema@.partition_data_time(
     p_parent_table text
     , p_batch_count int DEFAULT 1
     , p_batch_interval interval DEFAULT NULL
@@ -131,6 +131,7 @@ SELECT partition_tablename INTO v_last_partition FROM @extschema@.show_partition
 v_partition_expression := CASE
     WHEN v_epoch = 'seconds' THEN format('to_timestamp(%I)', v_control)
     WHEN v_epoch = 'milliseconds' THEN format('to_timestamp((%I/1000)::float)', v_control)
+    WHEN v_epoch = 'microseconds' THEN format('to_timestamp((%I/1000000)::float)', v_control)
     WHEN v_epoch = 'nanoseconds' THEN format('to_timestamp((%I/1000000000)::float)', v_control)
     ELSE format('%I', v_control)
 END;

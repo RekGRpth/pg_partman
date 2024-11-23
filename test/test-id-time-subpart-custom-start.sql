@@ -1,7 +1,7 @@
--- ########## NATIVE ID PARENT / TIME SUBPARENT TESTS ##########
+-- ########## ID PARENT / TIME SUBPARENT TESTS ##########
 -- Additional tests: no pg_jobmon
     -- Test using a pre-created template table and passing to create_parent. Should allow indexes to be made for initial children.
-    -- additional constraint column
+    -- additional constraint column (top lvl int)
 
 \set ON_ERROR_ROLLBACK 1
 \set ON_ERROR_STOP true
@@ -9,7 +9,7 @@
 BEGIN;
 SELECT set_config('search_path','partman, public',false);
 
-SELECT plan(323);
+SELECT plan(321);
 CREATE SCHEMA partman_test;
 
 CREATE TABLE partman_test.fk_test_reference (col2 text unique not null);
@@ -31,7 +31,7 @@ ALTER TABLE partman_test.template_id_taptest_table ADD PRIMARY KEY (col1);
 CREATE INDEX ON partman_test.id_taptest_table (col3);
 ALTER TABLE partman_test.id_taptest_table ADD FOREIGN KEY (col2) REFERENCES partman_test.fk_test_reference(col2);
 
-SELECT create_parent('partman_test.id_taptest_table', 'col1', '10', p_constraint_cols =>'{"col3"}', p_jobmon => false, p_template_table => 'partman_test.template_id_taptest_table');
+SELECT create_parent('partman_test.id_taptest_table', 'col1', '10', p_constraint_cols =>'{"col2"}', p_jobmon => false, p_template_table => 'partman_test.template_id_taptest_table');
 INSERT INTO partman_test.id_taptest_table (col1) VALUES (generate_series(1,9));
 
 SELECT is_partitioned('partman_test', 'id_taptest_table', 'Check that id_taptest_table is natively partitioned');
@@ -295,6 +295,7 @@ SELECT is_empty('SELECT * FROM partman_test.id_taptest_table_p40', 'Check count 
 INSERT INTO partman_test.id_taptest_table (col1, col3) VALUES (generate_series(10,20), CURRENT_TIMESTAMP+'1 day'::interval);
 
 SELECT run_maintenance();
+
 SELECT is_empty('SELECT * FROM ONLY partman_test.id_taptest_table_default', 'Check that top parent default is empty');
 SELECT is_empty('SELECT * FROM ONLY partman_test.id_taptest_table_p0_default', 'Check that subparent default p0 is empty');
 SELECT results_eq('SELECT count(*)::int FROM partman_test.id_taptest_table_p0', ARRAY[9], 'Check count from parent table partman_test.id_taptest_table_p0');
@@ -387,7 +388,6 @@ SELECT is_empty('SELECT * FROM partman_test.id_taptest_table_p60', 'Check count 
 
 SELECT hasnt_table('partman_test', 'id_taptest_table_p70', 'Check id_taptest_table_p70 doesn''t exists yet');
 
--- Ensure time partitioning works for all sub partitions
 UPDATE part_config SET premake = 5 WHERE parent_table ~ 'partman_test.id_taptest_table_p';
 SELECT run_maintenance();
 
@@ -448,6 +448,14 @@ SELECT hasnt_table('partman_test', 'id_taptest_table_p50_p'||to_char(CURRENT_TIM
 SELECT hasnt_table('partman_test', 'id_taptest_table_p60_p'||to_char(CURRENT_TIMESTAMP+'5 days'::interval, 'YYYYMMDD'),
     'Check id_taptest_table_p60_p'||to_char(CURRENT_TIMESTAMP+'5 days'::interval, 'YYYYMMDD')||' does not exist');
 
+-- Ensure constraint exclusion for top level. Latest data is in _p5, so optimize_constraint of 4 would be before _p1
+INSERT INTO partman_test.id_taptest_table (col1, col3) VALUES (generate_series(30,50), CURRENT_TIMESTAMP+'1 day'::interval);
+UPDATE partman.part_config SET optimize_constraint = 4 WHERE parent_table = 'partman_test.id_taptest_table';
+
+SELECT run_maintenance();
+SELECT col_has_check('partman_test', 'id_taptest_table_p0', 'col2'
+    , 'Check for additional constraint on col2 on id_taptest_table_p0');
+
 -- Test dropping without retention set
 SELECT drop_partition_time ('partman_test.id_taptest_table_p0', '2 days', p_keep_table := false);
 SELECT has_table('partman_test', 'id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP-'2 days'::interval, 'YYYYMMDD'),
@@ -462,7 +470,7 @@ SELECT hasnt_table('partman_test', 'id_taptest_table_p0_p'||to_char(CURRENT_TIME
     'Check id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP-'6 days'::interval, 'YYYYMMDD')||' does not exist');
 
 
-UPDATE part_config SET retention = '10', retention_keep_table = false WHERE parent_table = 'partman_test.id_taptest_table';
+UPDATE part_config SET retention = '30', retention_keep_table = false WHERE parent_table = 'partman_test.id_taptest_table';
 UPDATE part_config SET retention = '2 days', retention_keep_table = false WHERE parent_table = 'partman_test.id_taptest_table_p0';
 UPDATE part_config SET retention = '2 days', retention_keep_table = false WHERE parent_table = 'partman_test.id_taptest_table_p10';
 UPDATE part_config SET retention = '2 days', retention_keep_table = false WHERE parent_table = 'partman_test.id_taptest_table_p20';
@@ -475,30 +483,20 @@ UPDATE part_config SET retention = '2 days', retention_keep_table = false WHERE 
 
 SELECT run_maintenance();
 
+SELECT hasnt_table('partman_test', 'id_taptest_table_p0',
+    'Check id_taptest_table_p0 does not exist');
 SELECT hasnt_table('partman_test', 'id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP, 'YYYYMMDD'),
     'Check id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP, 'YYYYMMDD')||' does not exist');
 SELECT hasnt_table('partman_test', 'id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP+'1 day'::interval, 'YYYYMMDD'),
     'Check id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP+'1 day'::interval, 'YYYYMMDD')||' does not exist');
-SELECT hasnt_table('partman_test', 'id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP+'2 days'::interval, 'YYYYMMDD'),
-    'Check id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP+'2 days'::interval, 'YYYYMMDD')||' does not exist');
-SELECT hasnt_table('partman_test', 'id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP+'3 days'::interval, 'YYYYMMDD'),
-    'Check id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP+'3 days'::interval, 'YYYYMMDD')||' does not exist');
-SELECT hasnt_table('partman_test', 'id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP+'4 days'::interval, 'YYYYMMDD'),
-    'Check id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP+'4 days'::interval, 'YYYYMMDD')||' does not exist');
-SELECT hasnt_table('partman_test', 'id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP+'5 days'::interval, 'YYYYMMDD'),
-    'Check id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP+'5 days'::interval, 'YYYYMMDD')||' does not exist');
-SELECT hasnt_table('partman_test', 'id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP-'1 days'::interval, 'YYYYMMDD'),
-    'Check id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP-'1 days'::interval, 'YYYYMMDD')||' does not exist');
-SELECT hasnt_table('partman_test', 'id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP-'2 days'::interval, 'YYYYMMDD'),
-    'Check id_taptest_table_p0_p'||to_char(CURRENT_TIMESTAMP-'2 days'::interval, 'YYYYMMDD')||' does not exist');
+
+SELECT hasnt_table('partman_test', 'id_taptest_table_p10',
+    'Check id_taptest_table_p10 does not exist');
+SELECT hasnt_table('partman_test', 'id_taptest_table_p10_p'||to_char(CURRENT_TIMESTAMP, 'YYYYMMDD'),
+    'Check id_taptest_table_p10_p'||to_char(CURRENT_TIMESTAMP, 'YYYYMMDD')||' does not exist');
 SELECT hasnt_table('partman_test', 'id_taptest_table_p10_p'||to_char(CURRENT_TIMESTAMP-'3 days'::interval, 'YYYYMMDD'),
     'Check id_taptest_table_p10_p'||to_char(CURRENT_TIMESTAMP-'3 days'::interval, 'YYYYMMDD')||' does not exist');
-SELECT hasnt_table('partman_test', 'id_taptest_table_p10_p'||to_char(CURRENT_TIMESTAMP-'4 days'::interval, 'YYYYMMDD'),
-    'Check id_taptest_table_p10_p'||to_char(CURRENT_TIMESTAMP-'4 days'::interval, 'YYYYMMDD')||' does not exist');
-SELECT hasnt_table('partman_test', 'id_taptest_table_p10_p'||to_char(CURRENT_TIMESTAMP-'5 days'::interval, 'YYYYMMDD'),
-    'Check id_taptest_table_p10_p'||to_char(CURRENT_TIMESTAMP-'5 days'::interval, 'YYYYMMDD')||' does not exist');
-SELECT hasnt_table('partman_test', 'id_taptest_table_p10_p'||to_char(CURRENT_TIMESTAMP-'6 days'::interval, 'YYYYMMDD'),
-    'Check id_taptest_table_p10_p'||to_char(CURRENT_TIMESTAMP-'6 days'::interval, 'YYYYMMDD')||' does not exist');
+
 SELECT hasnt_table('partman_test', 'id_taptest_table_p20_p'||to_char(CURRENT_TIMESTAMP-'3 days'::interval, 'YYYYMMDD'),
     'Check id_taptest_table_p20_p'||to_char(CURRENT_TIMESTAMP-'3 days'::interval, 'YYYYMMDD')||' does not exist');
 SELECT hasnt_table('partman_test', 'id_taptest_table_p20_p'||to_char(CURRENT_TIMESTAMP-'4 days'::interval, 'YYYYMMDD'),
@@ -507,6 +505,7 @@ SELECT hasnt_table('partman_test', 'id_taptest_table_p20_p'||to_char(CURRENT_TIM
     'Check id_taptest_table_p20_p'||to_char(CURRENT_TIMESTAMP-'5 days'::interval, 'YYYYMMDD')||' does not exist');
 SELECT hasnt_table('partman_test', 'id_taptest_table_p20_p'||to_char(CURRENT_TIMESTAMP-'6 days'::interval, 'YYYYMMDD'),
     'Check id_taptest_table_p20_p'||to_char(CURRENT_TIMESTAMP-'6 days'::interval, 'YYYYMMDD')||' does not exist');
+
 SELECT hasnt_table('partman_test', 'id_taptest_table_p30_p'||to_char(CURRENT_TIMESTAMP-'3 days'::interval, 'YYYYMMDD'),
     'Check id_taptest_table_p30_p'||to_char(CURRENT_TIMESTAMP-'3 days'::interval, 'YYYYMMDD')||' does not exist');
 SELECT hasnt_table('partman_test', 'id_taptest_table_p30_p'||to_char(CURRENT_TIMESTAMP-'4 days'::interval, 'YYYYMMDD'),
@@ -515,6 +514,7 @@ SELECT hasnt_table('partman_test', 'id_taptest_table_p30_p'||to_char(CURRENT_TIM
     'Check id_taptest_table_p30_p'||to_char(CURRENT_TIMESTAMP-'5 days'::interval, 'YYYYMMDD')||' does not exist');
 SELECT hasnt_table('partman_test', 'id_taptest_table_p30_p'||to_char(CURRENT_TIMESTAMP-'6 days'::interval, 'YYYYMMDD'),
     'Check id_taptest_table_p30_p'||to_char(CURRENT_TIMESTAMP-'6 days'::interval, 'YYYYMMDD')||' does not exist');
+
 SELECT hasnt_table('partman_test', 'id_taptest_table_p40_p'||to_char(CURRENT_TIMESTAMP-'3 days'::interval, 'YYYYMMDD'),
     'Check id_taptest_table_p40_p'||to_char(CURRENT_TIMESTAMP-'3 days'::interval, 'YYYYMMDD')||' does not exist');
 SELECT hasnt_table('partman_test', 'id_taptest_table_p40_p'||to_char(CURRENT_TIMESTAMP-'4 days'::interval, 'YYYYMMDD'),
@@ -523,6 +523,7 @@ SELECT hasnt_table('partman_test', 'id_taptest_table_p40_p'||to_char(CURRENT_TIM
     'Check id_taptest_table_p40_p'||to_char(CURRENT_TIMESTAMP-'5 days'::interval, 'YYYYMMDD')||' does not exist');
 SELECT hasnt_table('partman_test', 'id_taptest_table_p40_p'||to_char(CURRENT_TIMESTAMP-'6 days'::interval, 'YYYYMMDD'),
     'Check id_taptest_table_p40_p'||to_char(CURRENT_TIMESTAMP-'6 days'::interval, 'YYYYMMDD')||' does not exist');
+
 SELECT hasnt_table('partman_test', 'id_taptest_table_p50_p'||to_char(CURRENT_TIMESTAMP-'3 days'::interval, 'YYYYMMDD'),
     'Check id_taptest_table_p50_p'||to_char(CURRENT_TIMESTAMP-'3 days'::interval, 'YYYYMMDD')||' does not exist');
 SELECT hasnt_table('partman_test', 'id_taptest_table_p50_p'||to_char(CURRENT_TIMESTAMP-'4 days'::interval, 'YYYYMMDD'),
@@ -531,6 +532,7 @@ SELECT hasnt_table('partman_test', 'id_taptest_table_p50_p'||to_char(CURRENT_TIM
     'Check id_taptest_table_p50_p'||to_char(CURRENT_TIMESTAMP-'5 days'::interval, 'YYYYMMDD')||' does not exist');
 SELECT hasnt_table('partman_test', 'id_taptest_table_p50_p'||to_char(CURRENT_TIMESTAMP-'6 days'::interval, 'YYYYMMDD'),
     'Check id_taptest_table_p50_p'||to_char(CURRENT_TIMESTAMP-'6 days'::interval, 'YYYYMMDD')||' does not exist');
+
 SELECT hasnt_table('partman_test', 'id_taptest_table_p60_p'||to_char(CURRENT_TIMESTAMP-'3 days'::interval, 'YYYYMMDD'),
     'Check id_taptest_table_p60_p'||to_char(CURRENT_TIMESTAMP-'3 days'::interval, 'YYYYMMDD')||' does not exist');
 SELECT hasnt_table('partman_test', 'id_taptest_table_p60_p'||to_char(CURRENT_TIMESTAMP-'4 days'::interval, 'YYYYMMDD'),
@@ -540,8 +542,6 @@ SELECT hasnt_table('partman_test', 'id_taptest_table_p60_p'||to_char(CURRENT_TIM
 SELECT hasnt_table('partman_test', 'id_taptest_table_p60_p'||to_char(CURRENT_TIMESTAMP-'6 days'::interval, 'YYYYMMDD'),
     'Check id_taptest_table_p60_p'||to_char(CURRENT_TIMESTAMP-'6 days'::interval, 'YYYYMMDD')||' does not exist');
 
-
-SELECT undo_partition('partman_test.id_taptest_table_p10', p_target_table := 'partman_test.undo_taptest', p_loop_count => 20, p_keep_table := false);
 SELECT has_table('partman_test', 'template_id_taptest_table', 'Check that template table was not removed yet');
 SELECT undo_partition('partman_test.id_taptest_table_p20', p_target_table := 'partman_test.undo_taptest', p_loop_count => 20, p_keep_table := false);
 SELECT has_table('partman_test', 'template_id_taptest_table', 'Check that template table was not removed yet');
@@ -553,9 +553,15 @@ SELECT undo_partition('partman_test.id_taptest_table_p50', p_target_table := 'pa
 SELECT has_table('partman_test', 'template_id_taptest_table', 'Check that template table was not removed yet');
 SELECT undo_partition('partman_test.id_taptest_table_p60', p_target_table := 'partman_test.undo_taptest', p_loop_count => 20, p_keep_table := false);
 SELECT has_table('partman_test', 'template_id_taptest_table', 'Check that template table was not removed yet');
+SELECT undo_partition('partman_test.id_taptest_table_p70', p_target_table := 'partman_test.undo_taptest', p_loop_count => 20, p_keep_table := false);
+SELECT has_table('partman_test', 'template_id_taptest_table', 'Check that template table was not removed yet');
+SELECT undo_partition('partman_test.id_taptest_table_p80', p_target_table := 'partman_test.undo_taptest', p_loop_count => 20, p_keep_table := false);
+SELECT has_table('partman_test', 'template_id_taptest_table', 'Check that template table was not removed yet');
+SELECT undo_partition('partman_test.id_taptest_table_p90', p_target_table := 'partman_test.undo_taptest', p_loop_count => 20, p_keep_table := false);
+SELECT has_table('partman_test', 'template_id_taptest_table', 'Check that template table was not removed yet');
 
 
-SELECT results_eq('SELECT count(*)::int FROM partman_test.undo_taptest', ARRAY[11], 'Check count from target of undo_partition');
+SELECT results_eq('SELECT count(*)::int FROM partman_test.undo_taptest', ARRAY[22], 'Check count from target of undo_partition');
 
 SELECT hasnt_table('partman_test', 'id_taptest_table_p10_p'||to_char(CURRENT_TIMESTAMP, 'YYYYMMDD'),
     'Check id_taptest_table_p10_p'||to_char(CURRENT_TIMESTAMP, 'YYYYMMDD')||' does not exist');
@@ -693,8 +699,7 @@ SELECT is_empty('SELECT parent_table from part_config where parent_table = ''par
 
 SELECT hasnt_table('partman_test', 'template_id_taptest_table', 'Check that template table was removed');
 
-SELECT results_eq('SELECT count(*)::int FROM ONLY partman_test.undo_taptest', ARRAY[11], 'Check count from final unpartitioned target table');
+SELECT results_eq('SELECT count(*)::int FROM ONLY partman_test.undo_taptest', ARRAY[22], 'Check count from final unpartitioned target table');
 
 SELECT * FROM finish();
-
 ROLLBACK;

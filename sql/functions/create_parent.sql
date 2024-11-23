@@ -12,6 +12,9 @@ CREATE FUNCTION @extschema@.create_parent(
     , p_template_table text DEFAULT NULL
     , p_jobmon boolean DEFAULT true
     , p_date_trunc_interval text DEFAULT NULL
+    , p_control_not_null boolean DEFAULT true
+    , p_time_encoder text DEFAULT NULL
+    , p_time_decoder text DEFAULT NULL
 )
     RETURNS boolean
     LANGUAGE plpgsql
@@ -116,8 +119,10 @@ JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
 WHERE c.relname = v_parent_tablename::name
 AND n.nspname = v_parent_schema::name
 AND a.attname = p_control::name;
-    IF (v_notnull = false OR v_notnull IS NULL) THEN
-        RAISE EXCEPTION 'Control column given (%) for parent table (%) does not exist or must be set to NOT NULL', p_control, p_parent_table;
+    IF (v_notnull IS NULL) THEN
+        RAISE EXCEPTION 'Control column given (%) for parent table (%) does not exist', p_control, p_parent_table;
+    ELSIF (v_notnull = false and p_control_not_null = true) THEN
+        RAISE EXCEPTION 'Control column given (%) for parent table (%) must be set to NOT NULL', p_control, p_parent_table;
     END IF;
 
 SELECT general_type, exact_type INTO v_control_type, v_control_exact_type
@@ -173,8 +178,12 @@ IF p_control <> v_part_col OR v_control_exact_type <> v_part_type THEN
 END IF;
 
 -- Check that control column is a usable type for pg_partman.
-IF v_control_type NOT IN ('time', 'id') THEN
-    RAISE EXCEPTION 'Only date/time or integer types are allowed for the control column.';
+IF v_control_type NOT IN ('time', 'id', 'text', 'uuid') THEN
+    RAISE EXCEPTION 'Only date/time, text/uuid or integer types are allowed for the control column.';
+ELSIF v_control_type IN ('text', 'uuid') AND (p_time_encoder IS NULL OR p_time_decoder IS NULL) THEN
+    RAISE EXCEPTION 'p_time_encoder and p_time_decoder needs to be set for text/uuid type control column.';
+ELSIF v_control_type NOT IN ('text', 'uuid') AND (p_time_encoder IS NOT NULL OR p_time_decoder IS NOT NULL) THEN
+    RAISE EXCEPTION 'p_time_encoder and p_time_decoder can only be used with text/uuid type control column.';
 END IF;
 
 -- Table to handle properties not managed by core PostgreSQL yet
@@ -323,7 +332,7 @@ LOOP
     v_inherit_privileges = v_row.sub_inherit_privileges;
 END LOOP;
 
-IF v_control_type = 'time' OR (v_control_type = 'id' AND p_epoch <> 'none') THEN
+IF v_control_type IN ('time', 'text', 'uuid') OR (v_control_type = 'id' AND p_epoch <> 'none') THEN
 
     v_time_interval := p_interval::interval;
     IF v_time_interval < '1 second'::interval THEN
@@ -340,6 +349,7 @@ IF v_control_type = 'time' OR (v_control_type = 'id' AND p_epoch <> 'none') THEN
     RAISE DEBUG 'create_parent(): parent_table: %, v_base_timestamp: %', p_parent_table, v_base_timestamp;
 
     v_partition_time_array := array_append(v_partition_time_array, v_base_timestamp);
+
     LOOP
         -- If current loop value is less than or equal to the value of the max premake, add time to array.
         IF (v_base_timestamp + (v_time_interval * v_count)) < (CURRENT_TIMESTAMP + (v_time_interval * p_premake)) THEN
@@ -366,13 +376,14 @@ IF v_control_type = 'time' OR (v_control_type = 'id' AND p_epoch <> 'none') THEN
         , epoch
         , control
         , premake
+        , time_encoder
+        , time_decoder
         , constraint_cols
         , datetime_string
         , automatic_maintenance
         , jobmon
         , template_table
         , inherit_privileges
-        , default_table
         , date_trunc_interval)
     VALUES (
         p_parent_table
@@ -381,13 +392,14 @@ IF v_control_type = 'time' OR (v_control_type = 'id' AND p_epoch <> 'none') THEN
         , p_epoch
         , p_control
         , p_premake
+        , p_time_encoder
+        , p_time_decoder
         , p_constraint_cols
         , v_datetime_string
         , p_automatic_maintenance
         , p_jobmon
         , v_template_schema||'.'||v_template_tablename
         , v_inherit_privileges
-        , p_default_table
         , p_date_trunc_interval);
 
     RAISE DEBUG 'create_parent: v_partition_time_array: %', v_partition_time_array;
@@ -524,7 +536,6 @@ IF v_control_type = 'id' AND p_epoch = 'none' THEN
         , jobmon
         , template_table
         , inherit_privileges
-        , default_table
         , date_trunc_interval)
     VALUES (
         p_parent_table
@@ -537,7 +548,6 @@ IF v_control_type = 'id' AND p_epoch = 'none' THEN
         , p_jobmon
         , v_template_schema||'.'||v_template_tablename
         , v_inherit_privileges
-        , p_default_table
         , p_date_trunc_interval);
 
     v_last_partition_created := @extschema@.create_partition_id(p_parent_table, v_partition_id_array);
@@ -611,7 +621,7 @@ IF p_default_table THEN
     */
 
     -- Same INCLUDING list is used in create_partition_*(). INDEXES is handled when partition is attached if it's supported.
-    v_sql := v_sql || format(' TABLE %I.%I (LIKE %I.%I INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING STORAGE INCLUDING COMMENTS INCLUDING GENERATED)'
+    v_sql := v_sql || format(' TABLE %I.%I (LIKE %I.%I INCLUDING COMMENTS INCLUDING COMPRESSION INCLUDING CONSTRAINTS INCLUDING DEFAULTS INCLUDING GENERATED INCLUDING STATISTICS INCLUDING STORAGE)'
         , v_parent_schema, v_default_partition, v_parent_schema, v_parent_tablename);
     IF v_parent_tablespace IS NOT NULL THEN
         v_sql := format('%s TABLESPACE %I ', v_sql, v_parent_tablespace);

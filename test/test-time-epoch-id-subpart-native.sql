@@ -3,6 +3,7 @@
     -- Set analyze to true for maintenance
     -- Premake template table and ensure pk is made on initial child tables
 -- TODO Add additional pk checks to all children
+    -- Allow NOT NULL for control (top level)
 
 \set ON_ERROR_ROLLBACK 1
 \set ON_ERROR_STOP true
@@ -16,14 +17,14 @@ CREATE SCHEMA partman_test;
 CREATE TABLE partman_test.time_taptest_table (
     col1 int NOT NULL
     , col2 text
-    , col3 int NOT NULL DEFAULT extract('epoch' from CURRENT_TIMESTAMP)::int)
+    , col3 int DEFAULT extract('epoch' from CURRENT_TIMESTAMP)::int)
     PARTITION BY RANGE (col3);
 CREATE TABLE partman_test.undo_taptest (LIKE partman_test.time_taptest_table INCLUDING ALL);
 
 CREATE TABLE partman_test.template_time_taptest_table (LIKE partman_test.time_taptest_table);
 ALTER TABLE partman_test.template_time_taptest_table ADD PRIMARY KEY (col1);
 
-SELECT create_parent('partman_test.time_taptest_table', 'col3', '1 day', p_epoch := 'seconds', p_template_table := 'partman_test.template_time_taptest_table' );
+SELECT create_parent('partman_test.time_taptest_table', 'col3', '1 day', p_epoch := 'seconds', p_template_table := 'partman_test.template_time_taptest_table', p_control_not_null := false  );
 INSERT INTO partman_test.time_taptest_table (col1, col3) VALUES (generate_series(1,10), extract('epoch' from CURRENT_TIMESTAMP)::int);
 
 SELECT has_table('partman_test', 'time_taptest_table_p'||to_char(CURRENT_TIMESTAMP, 'YYYYMMDD'), 'Check time_taptest_table_p'||to_char(CURRENT_TIMESTAMP, 'YYYYMMDD')||' exists');

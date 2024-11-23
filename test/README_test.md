@@ -9,7 +9,7 @@ A minimum version of pgtap 1.2.0 is required for pg_partman's test suite.
 
 ***WARNING: You MUST increase max_locks_per_transaction above the default value of 64. A value of 128 has worked well so far with existing tests. This is due to the subpartitioning tests that create/destroy several hundred tables in a single transaction. If you don't do this, you risk a cluster crash when running subpartitioning tests.***
 
-Tests assume that the required extensions have been installed in the following schemas:
+Tests assume that the required extensions have been installed in the following schemas (unless otherwise noted in that specific test):
 
     pg_partman: partman
     pgTAP: public
@@ -22,7 +22,7 @@ If you've installed any of the above extensions in a different schema and would 
 
 Once that's done, it's best to use the **pg_prove** script that pgTAP comes with to run all the tests. If you don't have pg_prove available from your installation source, it is typically available via a perl library package (Ex. `libtap-parser-sourcehandler-pgtap-perl` on Ubuntu).
 
-I like using the  -o, -v -f options to get more useful feedback.
+I like using the  -o -v -f options to get more useful feedback.
 
 ```sql
     pg_prove -ovf /path/to/partman/test/*.sql

@@ -121,9 +121,7 @@ SELECT results_eq('SELECT count(*)::int FROM partman_test.time_taptest_table_p'|
 UPDATE part_config SET premake = 3, optimize_constraint = 5 WHERE parent_table = 'partman_test.time_taptest_table';
 SELECT run_maintenance();
 
--- Automatic run of apply_constraints due to run_maintenance will put constraint on "now() - 4 weeks" partition with an optimize_constraint value of 5
--- This is due to values "now() + 2 weeks" being inserted above.
--- Ex: Current week is 39. +2 weeks is 41. Going back 5 weeks is 36, but constraint is applied to the table OLDER than that value. Hence constraint will be on week 35
+-- With an optimize_constraint value of 5, the automatic run of apply_constraints due to run_maintenance will put constraint on the child table that is 6 weeks behind the newest data (data two weeks ahead inserted above, so 4 weeks behind now()).
 SELECT col_has_check('partman_test', 'time_taptest_table_p'||to_char(date_trunc('week',CURRENT_TIMESTAMP)-'4 weeks'::interval, 'YYYYMMDD'), 'col1'
     , 'Check for additional constraint on col1 on time_taptest_table_p'||to_char(date_trunc('week',CURRENT_TIMESTAMP)-'4 weeks'::interval, 'YYYYMMDD')||' (-4 weeks)');
 -- Must run apply_constraints() to manually set the other older constraints

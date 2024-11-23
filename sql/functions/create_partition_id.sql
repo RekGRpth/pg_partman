@@ -126,9 +126,8 @@ FOREACH v_id IN ARRAY p_partition_ids LOOP
         v_step_id := add_step(v_job_id, 'Creating new partition '||v_partition_name||' with interval from '||v_id||' to '||(v_id + v_partition_interval)-1);
     END IF;
 
-    -- Close parentheses on LIKE are below due to differing requirements of subpartitioning
     -- Same INCLUDING list is used in create_parent()
-    v_sql := format('CREATE TABLE %I.%I (LIKE %I.%I INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING STORAGE INCLUDING COMMENTS INCLUDING GENERATED) '
+    v_sql := format('CREATE TABLE %I.%I (LIKE %I.%I  INCLUDING COMMENTS INCLUDING COMPRESSION INCLUDING CONSTRAINTS INCLUDING DEFAULTS INCLUDING GENERATED INCLUDING STATISTICS INCLUDING STORAGE) '
             , v_parent_schema
             , v_partition_name
             , v_parent_schema
@@ -190,6 +189,8 @@ FOREACH v_id IN ARRAY p_partition_ids LOOP
         SELECT
             sub_parent
             , sub_control
+            , sub_time_encoder
+            , sub_time_decoder
             , sub_partition_interval
             , sub_partition_type
             , sub_premake
@@ -211,6 +212,7 @@ FOREACH v_id IN ARRAY p_partition_ids LOOP
             , sub_default_table
             , sub_maintenance_order
             , sub_retention_keep_publication
+            , sub_control_not_null
         FROM @extschema@.part_config_sub
         WHERE sub_parent = p_parent_table
     LOOP
@@ -220,6 +222,8 @@ FOREACH v_id IN ARRAY p_partition_ids LOOP
         v_sql := format('SELECT @extschema@.create_parent(
                  p_parent_table := %L
                 , p_control := %L
+                , p_time_encoder := %L
+                , p_time_decoder := %L
                 , p_type := %L
                 , p_interval := %L
                 , p_default_table := %L
@@ -230,9 +234,12 @@ FOREACH v_id IN ARRAY p_partition_ids LOOP
                 , p_template_table := %L
                 , p_jobmon := %L
                 , p_start_partition := %L
-                , p_date_trunc_interval := %L )'
+                , p_date_trunc_interval := %L
+                , p_control_not_null := %L )'
             , v_parent_schema||'.'||v_partition_name
             , v_row.sub_control
+            , v_row.sub_time_encoder
+            , v_row.sub_time_decoder
             , v_row.sub_partition_type
             , v_row.sub_partition_interval
             , v_row.sub_default_table
@@ -243,7 +250,8 @@ FOREACH v_id IN ARRAY p_partition_ids LOOP
             , v_row.sub_template_table
             , v_row.sub_jobmon
             , p_start_partition
-            , v_row.sub_date_trunc_interval);
+            , v_row.sub_date_trunc_interval
+            , v_row.sub_control_not_null);
         RAISE DEBUG 'create_partition_id (create_parent loop): %', v_sql;
         EXECUTE v_sql;
 
