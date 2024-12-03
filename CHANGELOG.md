@@ -1,3 +1,9 @@
+5.2.1
+=====
+BUG FIXES
+---------
+ - Corrected a syntax error in the 5.1.0 to 5.2.0 update file. There are no problems with a direct install of 5.2.0 and there is no technical need to update to 5.2.1. The issue was encountered only when updating from any prior version to 5.2.0. New release was tagged to ease rolling out the fix for package managers.
+
 
 5.2.0
 =====

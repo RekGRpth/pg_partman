@@ -195,6 +195,7 @@ create_parent(
     , p_template_table text DEFAULT NULL
     , p_jobmon boolean DEFAULT true
     , p_date_trunc_interval text DEFAULT NULL
+    , p_control_not_null boolean DEFAULT true
     , p_time_encoder text DEFAULT NULL
     , p_time_decoder text DEFAULT NULL
 )
@@ -219,26 +220,29 @@ RETURNS boolean
  * `p_template_table` - If you do not pass a value here, a template table will automatically be made for you in same schema that pg_partman was installed to. If you pre-create a template table and pass its name here, then the initial child tables will obtain these properties discussed in the **About** section immediately.
  * `p_jobmon` - allow `pg_partman` to use the `pg_jobmon` extension to monitor that partitioning is working correctly. Defaults to TRUE.
  * `p_date_trunc_interval` - By default, pg_partman's time-based partitioning will truncate the child table starting values to line up at the beginning of typical boundaries (midnight for daily, day 1 for monthly, Jan 1 for yearly, etc). If a partitioning interval that does not fall on those boundaries is desired, this option may be required to ensure the child table has the expected boundaries (especially if you also set `p_start_partition`). The valid values allowed for this parameter are the interval values accepted by PostgreSQL's built-in `date_trunc()` function (day, week, month, etc). For example, if you set a 9-week interval, by default pg_partman would truncate the tables by month (since the interval is greater than one month but less than 1 year) and unexpectedly start on the first of the month in some cases. Set this parameter value to `week`, so that the child table start values are properly truncated on a weekly basis to line up with the 9-week interval. If you are using a custom time interval, please experiment with this option to get the expected set of child tables you desire or use a more typical partitioning interval to simplify partition management.
- * `p_time_encoder` - name of function that encodes a timestamp into a string representing your partition bounds. Setting this implicitly enables time based partitioning and is mandatory for text/uuid control column types. This enables paritioning tables using time based identifiers like uuidv7, ulid, snowflake ids and others. The function must handle NULL input safely. See test-time-daily.sql and test-uuid-daily for usage examples.
- * `p_time_decoder` - name of function that decodes a text/uuid control value into a timestamp. Setting this implicitly enables time based partitioning and is mandatory for text/uuid control column types. This enables paritioning tables using time based identifiers like uuidv7, ulid, snowflake ids and others. The function must handle NULL input safely. See test-time-daily.sql and test-uuid-daily for usage examples. 
+ * `p_control_not_null` - By default, this value is true and the control column must be set to NOT NULL. Setting this to false allows the control column to be NULL. Allowing this is not advised without very careful review and an explicit use-case defined as it can cause excessive data in the DEFAULT child partition.
+ * `p_time_encoder` - name of function that encodes a timestamp into a string representing your partition bounds. Setting this implicitly enables time based partitioning and is mandatory for text/uuid control column types. This enables partitioning tables using time based identifiers like uuidv7, ulid, snowflake ids and others. The function must handle NULL input safely. See test-time-daily.sql and test-uuid-daily for usage examples.
+ * `p_time_decoder` - name of function that decodes a text/uuid control value into a timestamp. Setting this implicitly enables time based partitioning and is mandatory for text/uuid control column types. This enables partitioning tables using time based identifiers like uuidv7, ulid, snowflake ids and others. The function must handle NULL input safely. See test-time-daily.sql and test-uuid-daily for usage examples.
 
 
 <a id="create_sub_parent"></a>
 ```sql
 create_sub_parent(
     p_top_parent text
-    , p_declarative_check text DEFAULT NULL
     , p_control text
     , p_interval text
     , p_type text DEFAULT 'range'
-    , p_epoch text DEFAULT 'none'
+    , p_default_table boolean DEFAULT true
+    , p_declarative_check text DEFAULT NULL
+    , p_constraint_cols text[] DEFAULT NULL
     , p_premake int DEFAULT 4
     , p_start_partition text DEFAULT NULL
-    , p_default_table boolean DEFAULT true
-    , p_constraint_cols text[] DEFAULT NULL
+    , p_epoch text DEFAULT 'none'
     , p_jobmon boolean DEFAULT true
     , p_date_trunc_interval text DEFAULT NULL
+    , p_control_not_null boolean DEFAULT true
     , p_time_encoder text DEFAULT NULL
+    , p_time_decoder text DEFAULT NULL
 )
 RETURNS boolean
 ```
@@ -251,20 +255,19 @@ RETURNS boolean
  * It is advised that you keep table names short for subpartition sets if you plan on relying on the table names for organization. The suffix added on to the end of a table name is always guaranteed to be there for whatever partition type is active for that set. Longer table names may cause the original parent table names to be truncated and possibly cut off the top level partitioning suffix. This cannot be controlled and ensures the lowest level partitioning suffix survives.
  * Note that for the first level of subpartitions, the `p_parent_table` argument you originally gave to `create_parent()` would be the exact same value you give to `create_sub_parent()`. If you need further subpartitioning, you would then start giving `create_sub_parent()` a different value (the child tables of the top level partition set).
  * The template table that is already set for the given p_top_parent will automatically be used.
- * `p_time_encoder` - name of function that encodes a timestamp into a string representing your partition bounds. Setting this implicitly enables time based partitioning and is mandatory for text/uuid control column types. This enables paritioning tables using time based identifiers like uuidv7, ulid, snowflake ids and others. The function must handle NULL input safely. See test-time-daily.sql and test-uuid-daily for usage examples.
 
 
 <a id="partition_data_time"></a>
 ```sql
 partition_data_time(
-        p_parent_table text
-        , p_batch_count int DEFAULT 1
-        , p_batch_interval interval DEFAULT NULL
-        , p_lock_wait numeric DEFAULT 0
-        , p_order text DEFAULT 'ASC'
-        , p_analyze boolean DEFAULT true
-        , p_source_table text DEFAULT NULL
-        , p_ignored_columns text[] DEFAULT NULL
+    p_parent_table text
+    , p_batch_count int DEFAULT 1
+    , p_batch_interval interval DEFAULT NULL
+    , p_lock_wait numeric DEFAULT 0
+    , p_order text DEFAULT 'ASC'
+    , p_analyze boolean DEFAULT true
+    , p_source_table text DEFAULT NULL
+    , p_ignored_columns text[] DEFAULT NULL
 )
 RETURNS bigint
 ```
@@ -287,6 +290,7 @@ RETURNS bigint
 <a id="partition_data_id"></a>
 ```sql
 partition_data_id(p_parent_table text
+    p_parent_table text
     , p_batch_count int DEFAULT 1
     , p_batch_interval bigint DEFAULT NULL
     , p_lock_wait numeric DEFAULT 0
@@ -321,8 +325,8 @@ partition_data_proc (
     , p_interval text DEFAULT NULL
     , p_lock_wait int DEFAULT 0
     , p_lock_wait_tries int DEFAULT 10
-    , p_wait int DEFAULT 1, p_order text DEFAULT 'ASC'
-    , p_order text DEFAULT 'ASC',
+    , p_wait int DEFAULT 1
+    , p_order text DEFAULT 'ASC'
     , p_source_table text DEFAULT NULL
     , p_ignored_columns text[] DEFAULT NULL
     , p_quiet boolean DEFAULT false

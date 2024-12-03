@@ -10,7 +10,7 @@ AND routine_name = 'create_parent'
 AND grantee != 'PUBLIC';
 
 INSERT INTO partman_preserve_privs_temp
-SELECT 'GRANT EXECUTE ON FUNCTION @extschema@. TO '||array_to_string(array_agg('"'||grantee::text||'"'), ',')||';'
+SELECT 'GRANT EXECUTE ON FUNCTION @extschema@.create_sub_parent(text, text, text, text, boolean, text, text[], int, text, text, boolean, text, boolean, text, text) TO '||array_to_string(array_agg('"'||grantee::text||'"'), ',')||';'
 FROM information_schema.routine_privileges
 WHERE routine_schema = '@extschema@'
 AND routine_name = 'create_sub_parent'
@@ -4250,6 +4250,10 @@ END LOOP;
 
 EXECUTE format('ANALYZE %I.%I', v_parent_schema, v_parent_tablename);
 
+PERFORM pg_advisory_unlock(hashtext('pg_partman reapply_constraints'));
+END
+$$;
+
 
 CREATE FUNCTION @extschema@.uuid7_time_encoder(ts TIMESTAMPTZ)
 RETURNS UUID
@@ -4286,9 +4290,6 @@ BEGIN
 
     RETURN to_timestamp(ts_millis / 1000.0);
 END;
-$$;
-PERFORM pg_advisory_unlock(hashtext('pg_partman reapply_constraints'));
-END
 $$;
 
 
