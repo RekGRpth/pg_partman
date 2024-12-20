@@ -1,15 +1,22 @@
+5.2.3
+=====
+BUG FIXES
+---------
+ - Fixed replica identity inheritance not working when the USING INDEX clause is used to set the replica identity of the parent table. (Github Issue #721)
+
+
 5.2.2
 =====
 BUG FIXES
 ---------
- -  Corrected SQL statements and updated functions missing from the 5.1.0 to 5.2.0 update files. If pg_partman was installed initially with 5.2.0, there are no known issues. If errors about missing functions or columns are encountered during maintenance after updating to 5.2.x, please make sure you are on this latest release. Thank you to all the users helping to test this issues!
+ -  Corrected SQL statements and updated functions missing from the 5.1.0 to 5.2.0 update files. If pg_partman was installed initially with 5.2.0, there are no known issues. If errors about missing functions or columns are encountered during maintenance after updating to 5.2.x, please make sure you are on this latest release. Thank you to all the users helping to test this issues! (Github Issue #718)
 
 
 5.2.1
 =====
 BUG FIXES
 ---------
- - Corrected a syntax error in the 5.1.0 to 5.2.0 update file. There are no problems with a direct install of 5.2.0 and there is no technical need to update to 5.2.1. The issue was encountered only when updating from any prior version to 5.2.0. New release was tagged to ease rolling out the fix for package managers.
+ - Corrected a syntax error in the 5.1.0 to 5.2.0 update file. There are no problems with a direct install of 5.2.0 and there is no technical need to update to 5.2.1. The issue was encountered only when updating from any prior version to 5.2.0. New release was tagged to ease rolling out the fix for package managers. (Github Issue #711)
 
 
 5.2.0

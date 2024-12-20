@@ -1,6 +1,6 @@
 -- ########## TIME DAILY TESTS ##########
 -- Other tests:
-    -- Test that replica identity is inherited
+    -- Test that replica identity USING INDEX is inherited. Note this only works with indexes that actually exist on the parent
     -- Ensure partition_data_proc can move data out of default when its in publication
 
 \set ON_ERROR_ROLLBACK 1
@@ -14,12 +14,12 @@ SELECT plan(34);
 CREATE SCHEMA partman_test;
 
 CREATE TABLE partman_test.time_taptest_table
-    (col1 int
+    (col1 int NOT NULL
         , col2 text default 'stuff'
         , col3 timestamptz NOT NULL DEFAULT now())
     PARTITION BY RANGE (col3);
-
-ALTER TABLE partman_test.time_taptest_table REPLICA IDENTITY FULL;
+CREATE UNIQUE INDEX time_taptest_table_unq ON partman_test.time_taptest_table (col1, col3);
+ALTER TABLE partman_test.time_taptest_table REPLICA IDENTITY USING INDEX time_taptest_table_unq;
 
 -- Create publication before child tables to check it was inherited
 CREATE PUBLICATION partman_test_publication FOR TABLE partman_test.time_taptest_table;
@@ -55,26 +55,26 @@ SELECT hasnt_table('partman_test', 'time_taptest_table_p'||to_char(CURRENT_TIMES
 
 SELECT results_eq('SELECT partition_tablename FROM partman.show_partitions(''partman_test.time_taptest_table'') LIMIT 1', ARRAY['time_taptest_table_p'||to_char(CURRENT_TIMESTAMP-'4 days'::interval, 'YYYYMMDD')], 'Check that -4 day old table table is oldest');
 
-SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_default''', ARRAY['f'], 'Check that replica identity was inherited to time_taptest_table_default' );
+SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_default''', ARRAY['i'], 'Check that replica identity was inherited to time_taptest_table_default' );
 
-SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP, ''YYYYMMDD'')', ARRAY['f'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP, 'YYYYMMDD') );
+SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP, ''YYYYMMDD'')', ARRAY['i'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP, 'YYYYMMDD') );
 
-SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP-''1 day''::interval, ''YYYYMMDD'')', ARRAY['f'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP-'1 day'::interval, 'YYYYMMDD') );
+SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP-''1 day''::interval, ''YYYYMMDD'')', ARRAY['i'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP-'1 day'::interval, 'YYYYMMDD') );
 
-SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP-''2 day''::interval, ''YYYYMMDD'')', ARRAY['f'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP-'2 day'::interval, 'YYYYMMDD') );
+SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP-''2 day''::interval, ''YYYYMMDD'')', ARRAY['i'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP-'2 day'::interval, 'YYYYMMDD') );
 
-SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP-''3 day''::interval, ''YYYYMMDD'')', ARRAY['f'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP-'3 day'::interval, 'YYYYMMDD') );
+SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP-''3 day''::interval, ''YYYYMMDD'')', ARRAY['i'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP-'3 day'::interval, 'YYYYMMDD') );
 
-SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP-''4 day''::interval, ''YYYYMMDD'')', ARRAY['f'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP-'4 day'::interval, 'YYYYMMDD') );
+SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP-''4 day''::interval, ''YYYYMMDD'')', ARRAY['i'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP-'4 day'::interval, 'YYYYMMDD') );
 
 
-SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''1 day''::interval, ''YYYYMMDD'')', ARRAY['f'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'1 day'::interval, 'YYYYMMDD') );
+SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''1 day''::interval, ''YYYYMMDD'')', ARRAY['i'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'1 day'::interval, 'YYYYMMDD') );
 
-SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''2 day''::interval, ''YYYYMMDD'')', ARRAY['f'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'2 day'::interval, 'YYYYMMDD') );
+SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''2 day''::interval, ''YYYYMMDD'')', ARRAY['i'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'2 day'::interval, 'YYYYMMDD') );
 
-SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''3 day''::interval, ''YYYYMMDD'')', ARRAY['f'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'3 day'::interval, 'YYYYMMDD') );
+SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''3 day''::interval, ''YYYYMMDD'')', ARRAY['i'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'3 day'::interval, 'YYYYMMDD') );
 
-SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''4 day''::interval, ''YYYYMMDD'')', ARRAY['f'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'4 day'::interval, 'YYYYMMDD') );
+SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''4 day''::interval, ''YYYYMMDD'')', ARRAY['i'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'4 day'::interval, 'YYYYMMDD') );
 
 INSERT INTO partman_test.time_taptest_table (col1, col3) VALUES (generate_series(11,20), CURRENT_TIMESTAMP + '1 day'::interval);
 INSERT INTO partman_test.time_taptest_table (col1, col3) VALUES (generate_series(21,25), CURRENT_TIMESTAMP + '2 days'::interval);
@@ -83,13 +83,13 @@ INSERT INTO partman_test.time_taptest_table (col1, col3) VALUES (generate_series
 
 SELECT run_maintenance();
 
-SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''5 day''::interval, ''YYYYMMDD'')', ARRAY['f'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'5 day'::interval, 'YYYYMMDD') );
+SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''5 day''::interval, ''YYYYMMDD'')', ARRAY['i'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'5 day'::interval, 'YYYYMMDD') );
 
-SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''6 day''::interval, ''YYYYMMDD'')', ARRAY['f'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'6 day'::interval, 'YYYYMMDD') );
+SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''6 day''::interval, ''YYYYMMDD'')', ARRAY['i'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'6 day'::interval, 'YYYYMMDD') );
 
-SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''7 day''::interval, ''YYYYMMDD'')', ARRAY['f'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'7 day'::interval, 'YYYYMMDD') );
+SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''7 day''::interval, ''YYYYMMDD'')', ARRAY['i'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'7 day'::interval, 'YYYYMMDD') );
 
-SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''8 day''::interval, ''YYYYMMDD'')', ARRAY['f'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'8 day'::interval, 'YYYYMMDD') );
+SELECT results_eq('SELECT c.relreplident::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = ''partman_test'' AND c.relname = ''time_taptest_table_p''||to_char(CURRENT_TIMESTAMP+''8 day''::interval, ''YYYYMMDD'')', ARRAY['i'], 'Check that replica identity was inherited to time_taptest_table_p'||to_char(CURRENT_TIMESTAMP+'8 day'::interval, 'YYYYMMDD') );
 
 -- Insert data outside covered children to check that default table is able to have data removed as part of publication. Also provides
 -- another test that default got the replica identity
