@@ -135,7 +135,7 @@ CHECK (@extschema@.check_automatic_maintenance_value(sub_automatic_maintenance))
  * Check function for config table epoch types
  */
 CREATE FUNCTION @extschema@.check_epoch_type (p_type text) RETURNS boolean
-    LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER
+    LANGUAGE plpgsql IMMUTABLE
     SET search_path TO pg_catalog, pg_temp
     AS $$
 DECLARE
@@ -161,7 +161,7 @@ CHECK (@extschema@.check_epoch_type(sub_epoch));
  */
 -- Allow hash in future update
 CREATE FUNCTION @extschema@.check_partition_type (p_type text) RETURNS boolean
-    LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER
+    LANGUAGE plpgsql IMMUTABLE
     SET search_path TO pg_catalog, pg_temp
     AS $$
 DECLARE

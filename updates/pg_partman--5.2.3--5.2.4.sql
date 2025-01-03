@@ -1,4 +1,4 @@
-CREATE FUNCTION @extschema@.partition_data_time(
+CREATE OR REPLACE FUNCTION @extschema@.partition_data_time(
     p_parent_table text
     , p_batch_count int DEFAULT 1
     , p_batch_interval interval DEFAULT NULL
@@ -298,5 +298,31 @@ END IF;
 
 RETURN v_total_rows;
 
+END
+$$;
+
+
+CREATE OR REPLACE FUNCTION @extschema@.check_epoch_type (p_type text) RETURNS boolean
+    LANGUAGE plpgsql IMMUTABLE
+    SET search_path TO pg_catalog, pg_temp
+    AS $$
+DECLARE
+v_result    boolean;
+BEGIN
+    SELECT p_type IN ('none', 'seconds', 'milliseconds', 'microseconds', 'nanoseconds') INTO v_result;
+    RETURN v_result;
+END
+$$;
+
+
+CREATE OR REPLACE FUNCTION @extschema@.check_partition_type (p_type text) RETURNS boolean
+    LANGUAGE plpgsql IMMUTABLE
+    SET search_path TO pg_catalog, pg_temp
+    AS $$
+DECLARE
+v_result    boolean;
+BEGIN
+    SELECT p_type IN ('range', 'list') INTO v_result;
+    RETURN v_result;
 END
 $$;

@@ -48,9 +48,9 @@ SELECT has_table('partman_test', 'time_taptest_table_p'||to_char(date_trunc('mon
 SELECT has_table('partman_test', 'time_taptest_table_p'||to_char(date_trunc('month', CURRENT_TIMESTAMP)-'4 month'::interval, 'YYYYMMDD'),
     'Check time_taptest_table_p'||to_char(date_trunc('month', CURRENT_TIMESTAMP)-'4 month'::interval, 'YYYYMMDD')||' exists');
 SELECT has_table('partman_test', 'time_taptest_table_p'||to_char(date_trunc('month', CURRENT_TIMESTAMP)-'11 month'::interval, 'YYYYMMDD'),
-    'Check time_taptest_table_p'||to_char(date_trunc('month', CURRENT_TIMESTAMP)-'23 month'::interval, 'YYYYMMDD')||' exists');
+    'Check time_taptest_table_p'||to_char(date_trunc('month', CURRENT_TIMESTAMP)-'11 month'::interval, 'YYYYMMDD')||' exists');
 SELECT has_table('partman_test', 'time_taptest_table_p'||to_char(date_trunc('month', CURRENT_TIMESTAMP)-'12 month'::interval, 'YYYYMMDD'),
-    'Check time_taptest_table_p'||to_char(date_trunc('month', CURRENT_TIMESTAMP)-'24 month'::interval, 'YYYYMMDD')||' exists');
+    'Check time_taptest_table_p'||to_char(date_trunc('month', CURRENT_TIMESTAMP)-'12 month'::interval, 'YYYYMMDD')||' exists');
 SELECT hasnt_table('partman_test', 'time_taptest_table_p'||to_char(date_trunc('month', CURRENT_TIMESTAMP)-'13 month'::interval, 'YYYYMMDD'),
     'Check time_taptest_table_p'||to_char(date_trunc('month', CURRENT_TIMESTAMP)-'13 month'::interval, 'YYYYMMDD')||' does not exist');
 

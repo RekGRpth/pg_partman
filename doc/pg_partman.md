@@ -81,6 +81,7 @@ For this extension, most of the attributes of the child partitions are all obtai
 | unlogged table state*                             |                       |  14+                  |
 | non-unique indexes                                | 14+                   |                       |
 | privileges/ownership                              | 14+                   |                       |
+| GENERATED ALWAYS AS IDENTITY column               | 17+                   |                       |
 
 If a property is managed via the template table, it likely will not be retroactively applied to all existing child tables if that property is changed. It will apply to any newly created children, but will have to be manually applied to any existing children.
 
@@ -89,15 +90,15 @@ Privileges & ownership are NOT inherited by default. If enabled by pg_partman, n
 If you are using the IDENTITY feature for sequences, the automatic generation of new sequence values using this feature is only supported when data is inserted through the parent table, not directly into the children.
 
 IMPORTANT NOTES:
-* The template table feature is only a temporary solution to help speed up declarative partitioning adoption. As things are handled better in core, the use of the template table will be phased out quickly from pg_partman. If a feature that was managed by the template is supported in core in the future, it will eventually be removed from template management in pg_partman, so please plan ahead for that during major version upgrading if it applies to you.
-
+ * The template table feature is only a temporary solution to help speed up declarative partitioning adoption. As things are handled better in core, the use of the template table will be phased out quickly from pg_partman. If a feature that was managed by the template is supported in core in the future, it will eventually be removed from template management in pg_partman, so please plan ahead for that during major version upgrading if it applies to you.
+ * If you are needing to use the REPLICA IDENTITY property for logical replication with the USING INDEX clause, note that this is only supported if the index you need to use has been created on the actual parent table, NOT the template. Since there is no way to limit whether the REPLICA IDENTITY is made on both the parent table and the template, there's no way to tell which one is the "right" identity. Therefore only the parent table was chosen as the source to be consistent with the other identity inheritance methods (FULL & NONE).
  * The UNLOGGED status is managed via pg_partman's template due to an inconsistency in the way the property is handled when either enabling or disabling UNLOGGED on the parent table of a partition set. That property does not actually change on the parent table when the ALTER command is written so new child tables will continue to use the property that existed before. So if you wanted to change a partition set from UNLOGGED to LOGGED for all future children, it does not work. With the property now being managed on the template table, changing it there will allow the change to propagate to newly created children. Pre-existing child tables will have to be changed manually, but that has always been the case. See reported bug at https://www.postgresql.org/message-id/flat/15954-b61523bed4b110c4%40postgresql.org
 
 ### Time Zones
 
 It is important to ensure that the time zones for all systems that will be running pg_partman maintenance operations are consistent, especially when running time-based partitioning. The calls to pg_partman functions will use the time zone that is set by the client at the time the functions are called. This is consistent with the way libpq clients work in general.
 
-In general, it is highly recommended to always run your database system in UTC time. It makes handling any time-related issues tremendously easier and especially to overcome issues that are currently not possible to solve due to Daylight Saving Time (DST) changes. In addition to this, also ensure the client that will be creating partition sets and running the maintenance calls is also set to UTC. For example, trying to partition hourly will either break when the time changes or skip creating a child table.
+It is highly recommended to always run your database system in UTC time. It makes handling any time-related issues tremendously easier and especially to overcome issues that are currently not possible to solve due to Daylight Saving Time (DST) changes.  For example, trying to partition hourly will either break when the time changes or skip creating a child table. In addition to this, also ensure the client that will be creating partition sets and running the maintenance calls is also set to UTC.
 
 ### Subpartitioning
 
@@ -142,7 +143,7 @@ PostgreSQL has an object naming length limit of 63 bytes (NOT characters). If yo
 
 ### Unique Constraints
 
-Table inheritance in PostgreSQL does not allow a primary key or unique index/constraint on the parent to apply to all child tables. The constraint is applied to each individual table, but not on the entire partition set as a whole. For example, this means a careless application can cause a primary key value to be duplicated in a partition set. In the mean time, a python script is included with `pg_partman` that can provide monitoring to help ensure the lack of this feature doesn't cause long term harm. See **`check_unique_constraint.py`** in the **Scripts** section.
+Table inheritance in PostgreSQL does not allow a primary key or unique index/constraint on the parent unless it contains the partition key column. pg_partman allows this for any column by applying it to the template table. However the constraint is applied to each individual table, not on the entire partition set as a whole. For example, this means a careless application can cause a primary key value to be duplicated in a partition set. In the mean time, a python script is included with `pg_partman` that can provide monitoring to help ensure the lack of this feature doesn't cause long term harm. See **`check_unique_constraint.py`** in the **Scripts** section.
 
 ### <a id="logging-monitoring">Logging/Monitoring</a>
 
@@ -151,19 +152,19 @@ The PG Jobmon extension (https://github.com/omniti-labs/pg_jobmon) is optional a
 
 Background Worker
 -----------------
-`pg_partman`'s BGW is basically just a scheduler that runs the `run_maintenance()` function for you so that you don't have to use an external scheduler (cron, etc). Right now it doesn't do anything differently than calling `run_maintenance()` directly, but that may change in the future. See the README.md file for installation instructions. If you need to call `run_maintenance()` directly on any specific partition sets, you will still need to do so manually using an outside scheduler. This only maintains partition sets that have `automatic_maintenance` in `**part_config**` set to true. LOG messages are output to the normal PostgreSQL log file to indicate when the BGW runs. Additional logging messages are available if *log_min_messages* is set to "DEBUG1".
+`pg_partman`'s BGW is basically just a scheduler that runs the `run_maintenance_proc()` procedure for you so that you don't have to use an external scheduler (cron, etc). Right now it doesn't do anything differently than calling `run_maintenance_proc()` directly, but that may change in the future. See the README.md file for installation instructions. If you need to call `run_maintenance()` directly on any specific partition sets, you will still need to do so manually using an outside scheduler. This only maintains partition sets that have `automatic_maintenance` in `**part_config**` set to true. LOG messages are output to the normal PostgreSQL log file to indicate when the BGW runs. Additional logging messages are available if *log_min_messages* is set to "DEBUG1".
 
 **REMEMBER:** You must have `pg_partman_bgw` in your `shared_preload_libraries` (requires a restart).
 
 The following configuration options are available to add into postgresql.conf to control the BGW process:
 
  - `pg_partman_bgw.dbname`
-    - Required. The database(s) that `run_maintenance()` will run on. If more than one, use a comma separated list. If not set, BGW will do nothing.
+    - Required. The database(s) that maintenance will run on. If more than one, use a comma separated list. If not set, BGW will do nothing.
  - `pg_partman_bgw.interval`
-    - Number of seconds between calls to `run_maintenance()`. Default is 3600 (1 hour).
+    - Number of seconds between maintenance calls. Default is 3600 (1 hour).
     - See further documentation below on suggested values for this based on partition types & intervals used.
  - `pg_partman_bgw.role`
-    - The role that `run_maintenance()` will run as. Default is "postgres". Only a single role name is allowed.
+    - The role that maintenance will run as. Default is "postgres". Only a single role name is allowed.
  - `pg_partman_bgw.analyze`
     - Same purpose as the p_analyze argument to `run_maintenance()`. See below for more detail. Set to 'on' for TRUE. Set to 'off' for FALSE (Default is 'off').
  - `pg_partman_bgw.jobmon`
