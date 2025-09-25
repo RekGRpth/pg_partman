@@ -1,3 +1,5 @@
+_Last Updated: July 24, 2025_
+
 PostgreSQL Partition Manager Extension (`pg_partman`)
 =====================================================
 
@@ -92,7 +94,7 @@ If you are using the IDENTITY feature for sequences, the automatic generation of
 IMPORTANT NOTES:
  * The template table feature is only a temporary solution to help speed up declarative partitioning adoption. As things are handled better in core, the use of the template table will be phased out quickly from pg_partman. If a feature that was managed by the template is supported in core in the future, it will eventually be removed from template management in pg_partman, so please plan ahead for that during major version upgrading if it applies to you.
  * If you are needing to use the REPLICA IDENTITY property for logical replication with the USING INDEX clause, note that this is only supported if the index you need to use has been created on the actual parent table, NOT the template. Since there is no way to limit whether the REPLICA IDENTITY is made on both the parent table and the template, there's no way to tell which one is the "right" identity. Therefore only the parent table was chosen as the source to be consistent with the other identity inheritance methods (FULL & NONE).
- * The UNLOGGED status is managed via pg_partman's template due to an inconsistency in the way the property is handled when either enabling or disabling UNLOGGED on the parent table of a partition set. That property does not actually change on the parent table when the ALTER command is written so new child tables will continue to use the property that existed before. So if you wanted to change a partition set from UNLOGGED to LOGGED for all future children, it does not work. With the property now being managed on the template table, changing it there will allow the change to propagate to newly created children. Pre-existing child tables will have to be changed manually, but that has always been the case. See reported bug at https://www.postgresql.org/message-id/flat/15954-b61523bed4b110c4%40postgresql.org
+ * The UNLOGGED status is managed via pg_partman's template since as of PostgreSQL 18 it is no longer possible to set the unlogged flag on the parent table of a partition set. Prior to 18, this was not handled consistently. When you upgrade to PG18, the unlogged flag will be removed from any parent table in a partition set, but can still be set on the lowest level child tables.
 
 ### Time Zones
 
@@ -112,7 +114,14 @@ See the `create_sub_parent()` & `run_maintenance()` functions below for more inf
 
 ### Retention
 
-If you don't need to keep data in older partitions, a retention system is available to automatically drop unneeded child partitions. By default, they are only uninherited/detached not actually dropped, but that can be configured if desired. There is also a method available to dump the tables out if they don't need to be in the database anymore but still need to be kept. To set the retention policy, enter either an interval or integer value into the **retention** column of the **part_config** table. For time-based partitioning, the interval value will set that any partitions containing only data older than that will be dropped (including safely handling cases where the retention interval is not a multiple of the partition size). For id-based partitioning, the integer value will set that any partitions with an id value less than the current maximum id value minus the retention value will be dropped. For example, if the current max id is 100 and the retention value is 30, any partitions with id values less than 70 will be dropped. The current maximum id value at the time the drop function is run is always used.
+If you don't need to keep data in older partitions, a retention system is available to automatically drop unneeded child partitions. By default, they are only uninherited/detached not actually dropped, but that can be configured if desired. There is also a method available to dump the tables out if they don't need to be in the database anymore but still need to be kept.
+
+To set the retention policy, enter either an interval or integer value into the **retention** column of the **part_config** table. For time-based partitioning, the interval value will set that any partitions containing only data older than that will be dropped (including safely handling cases where the retention interval is not a multiple of the partition size). This value must conform to the PostgreSQL interval data type. Note that without any unit qualifier, a raw number value will be converted to seconds. So your value should be something like `1 day`, `1 month`, `2 years`, etc.
+
+https://www.postgresql.org/docs/current/datatype-datetime.html#DATATYPE-INTERVAL-INPUT
+
+For id-based partitioning, the integer value will set that any partitions with an id value less than the current maximum id value minus the retention value will be dropped. For example, if the current max id is 100 and the retention value is 30, any partitions with id values less than 70 will be dropped. The current maximum id value at the time the drop function is run is always used.
+
 Keep in mind that for subpartition sets, when a parent table has a child dropped, if that child table is in turn partitioned, the drop is a CASCADE and ALL child tables down the entire inheritance tree will be dropped. Also note that a partition set managed by pg_partman must always have at least one child, so retention will never drop the last child table in a set.
 
 ### Constraint Exclusion
@@ -223,7 +232,7 @@ RETURNS boolean
  * `p_date_trunc_interval` - By default, pg_partman's time-based partitioning will truncate the child table starting values to line up at the beginning of typical boundaries (midnight for daily, day 1 for monthly, Jan 1 for yearly, etc). If a partitioning interval that does not fall on those boundaries is desired, this option may be required to ensure the child table has the expected boundaries (especially if you also set `p_start_partition`). The valid values allowed for this parameter are the interval values accepted by PostgreSQL's built-in `date_trunc()` function (day, week, month, etc). For example, if you set a 9-week interval, by default pg_partman would truncate the tables by month (since the interval is greater than one month but less than 1 year) and unexpectedly start on the first of the month in some cases. Set this parameter value to `week`, so that the child table start values are properly truncated on a weekly basis to line up with the 9-week interval. If you are using a custom time interval, please experiment with this option to get the expected set of child tables you desire or use a more typical partitioning interval to simplify partition management.
  * `p_control_not_null` - By default, this value is true and the control column must be set to NOT NULL. Setting this to false allows the control column to be NULL. Allowing this is not advised without very careful review and an explicit use-case defined as it can cause excessive data in the DEFAULT child partition.
  * `p_time_encoder` - name of function that encodes a timestamp into a string representing your partition bounds. Setting this implicitly enables time based partitioning and is mandatory for text/uuid control column types. This enables partitioning tables using time based identifiers like uuidv7, ulid, snowflake ids and others. The function must handle NULL input safely. See test-time-daily.sql and test-uuid-daily for usage examples.
- * `p_time_decoder` - name of function that decodes a text/uuid control value into a timestamp. Setting this implicitly enables time based partitioning and is mandatory for text/uuid control column types. This enables partitioning tables using time based identifiers like uuidv7, ulid, snowflake ids and others. The function must handle NULL input safely. See test-time-daily.sql and test-uuid-daily for usage examples.
+ * `p_time_decoder` - name of function that decodes a text/uuid control value into a timestamp. Setting this implicitly enables time based partitioning and is mandatory for text/uuid control column types. This enables partitioning tables using time based identifiers like uuidv7, ulid, snowflake ids and others. The function must handle NULL input safely and it also must take a TEXT type for its input parameter at this time. See test-time-daily.sql and test-uuid-daily for usage examples.
 
 
 <a id="create_sub_parent"></a>
@@ -269,6 +278,7 @@ partition_data_time(
     , p_analyze boolean DEFAULT true
     , p_source_table text DEFAULT NULL
     , p_ignored_columns text[] DEFAULT NULL
+    , p_override_system_value boolean DEFAULT false
 )
 RETURNS bigint
 ```
@@ -285,6 +295,7 @@ RETURNS bigint
  * `p_analyze` - optional argument, by default whenever a new child table is created, an analyze is run on the parent table of the partition set to ensure constraint exclusion works. This analyze can be skipped by setting this to false and help increase the speed of moving large amounts of data. If this is set to false, it is highly recommended that a manual analyze of the partition set be done upon completion to ensure statistics are updated properly.
  * `p_source_table` - This option can be used when you need to move data into a partitioned table. Pass a schema qualified tablename to this parameter and any data in that table will be MOVED to the partition set designated by p_parent_table, creating any child tables as needed.
  * `p_ignored_columns` - This option allows for filtering out specific columns when moving data from the default/source to the target child table(s). This is generally only required when using columns with a GENERATED ALWAYS value since directly inserting a value would fail when moving the data. Value is a text array of column names.
+ * `p_override_system_value` - When moving data from the default or another source table to a partition set that has GENERATED ALWAYS column values, you may want to keep the values from the source vs having newly generated values. This allows you to set the `OVERRIDING SYSTEM VALUE` flag when inserting data. Note that you may need to reset the underlying sequence for the target generated columns when overriding inserted data.
  * Returns the number of rows that were moved from the parent table to partitions. Returns zero when source table is empty and partitioning is complete.
 
 
@@ -299,6 +310,7 @@ partition_data_id(p_parent_table text
     , p_analyze boolean DEFAULT true
     , p_source_table text DEFAULT NULL
     , p_ignored_columns text[] DEFAULT NULL
+    , p_override_system_value boolean DEFAULT false
 )
 RETURNS bigint
 ```
@@ -315,6 +327,7 @@ RETURNS bigint
  * `p_analyze` - optional argument, by default whenever a new child table is created, an analyze is run on the parent table of the partition set to ensure constraint exclusion works. This analyze can be skipped by setting this to false and help increase the speed of moving large amounts of data. If this is set to false, it is highly recommended that a manual analyze of the partition set be done upon completion to ensure statistics are updated properly.
  * `p_source_table` - This option can be used when you need to move data into a partitioned table. Pass a schema qualified tablename to this parameter and any data in that table will be MOVED to the partition set designated by p_parent_table, creating any child tables as needed.
  * `p_ignored_columns` - This option allows for filtering out specific columns when moving data from the default/source to the target child table(s). This is generally only required when using columns with a GENERATED ALWAYS value since directly inserting a value would fail when moving the data. Value is a text array of column names.
+ * `p_override_system_value` - When moving data from the default or another source table to a partition set that has GENERATED ALWAYS column values, you may want to keep the values from the source vs having newly generated values. This allows you to set the `OVERRIDING SYSTEM VALUE` flag when inserting data. Note that you may need to reset the underlying sequence for the target generated columns when overriding inserted data.
  * Returns the number of rows that were moved from the parent table to partitions. Returns zero when source table is empty and partitioning is complete.
 
 
@@ -337,7 +350,7 @@ partition_data_proc (
  * A procedure that can partition data in distinct commit batches to avoid long running transactions and data contention issues.
  * Calls either partition_data_time() or partition_data_id() in a loop depending on partitioning type.
  * `p_parent_table` - Parent table of an already created partition set.
- * `p_loop_count` - How many times to loop through the value given for p_interval. If p_interval not set, will use default partition interval and make at most this many partition(s). Procedure commits at the end of each loop (NOT passed as p_batch_count to partitioning function). If not set, all data in the parent/source table will be partitioned in a single run of the procedure.
+ * `p_loop_count` - How many times to loop through the value given for p_interval. If p_interval not set, will use default partition interval and make at most this many partition(s). Procedure commits at the end of each loop (NOT passed as p_batch_count to partitioning function). If not set, all data in the default/source table will be partitioned in a single run of the procedure.
  * `p_interval` - Parameter that is passed on to the partitioning function as p_batch_interval argument. See underlying functions for further explanation.
  * `p_lock_wait` - Parameter that is passed directly through to the underlying partition_data_*() function. Number of seconds to wait on rows that may be locked by another transaction. Default is to wait forever (0).
  * `p_lock_wait_tries` - Parameter to set how many times the procedure will attempt waiting the amount of time set for p_lock_wait. Default is 10 tries.
@@ -346,6 +359,50 @@ partition_data_proc (
  * `p_source_table` - Same as the p_source_table option in the called partitioning function
  * `p_ignored_columns` - This option allows for filtering out specific columns when moving data from the default/parent to the proper child table(s). This is generally only required when using columns with a GENERATED ALWAYS value since directly inserting a value would fail when moving the data. Value is a text array of column names.
  * `p_quiet` - Procedures cannot return values, so by default it emits NOTICE's to show progress. Set this option to silence these notices.
+
+
+<a id="partition_data_proc"></a>
+```sql
+partition_data_async (
+    p_parent_table text
+    , p_loop_count int DEFAULT NULL
+    , p_interval text DEFAULT NULL
+    , p_lock_wait int DEFAULT 0
+    , p_lock_wait_tries int DEFAULT 10
+    , p_wait int DEFAULT 1
+    , p_order text DEFAULT 'ASC'
+    , p_ignored_columns text[] DEFAULT NULL
+    , p_quiet boolean DEFAULT false
+)
+```
+ * Note: This procedure currently only works with time-based partitioning as of pg_partman version 5.3.0. Integer/id support is in development.
+ * A procedure designed to help move data out of the default partition in smaller batches of rows per committed transaction than the partition interval.
+ * This procedure is ONLY for moving data out of the default. If you're moving data from another source table to the partitioned table, you can already use smaller batch sizes than the partition interval with the `partition_data_proc()` procedure (or standard `partition_data_time/id()` functions).
+ * The `partition_data_proc()` procedure can still be used to do migrate data out of the default, but the transaction interval size can never be smaller than the partition interval since the new child table cannot be made until all of the relevant data has been moved out of the default.
+ * IMPORTANT NOTE: This procedure works by first moving all the data for a target child table to another real, working table. The smaller batches are committed, so the data that is in transit before being moved to the target child table is NOT VISIBLE to users of the table. If you cannot afford to have data disappearing for the users of the table, then this asyncrhonous method WILL NOT provide the desired result. In that case, you must use a batch size equal to the interval size of the partition set and you can use `partition_data_proc()`.
+ * How this procedure works:
+    * The interval size is the amount of data that is moved in each commit.
+    * Commits are done when data is moved to the temporary storage location as well as the final child table.
+    * So the value of the loop count to move all the data for a single child table is the partition set's interval divided by the interval size given to this function times 2.
+    * For example: A daily partition set (24 hrs) is given the interval of 6 hours to this asynchronous procedure so that it commits after each block of 6 hours is moved. That means there would be 4 batches of data that first get moved to the working table then moved to the final child table for a total of 8 commits. So p_loop_count would be 8 to move all the data for a single child table in this partition set ( (24 / 6) * 2).
+    * Multiply that value for however many child tables you expect to be moved.
+    * If no loop count is given, the entire default table will be emptied out using the batch interval given.
+ * A real (not temporary) table is created as needed to hold intermediate data while it is moved. This table will be dropped whenever a child table has been created and all the data is moved to it.
+    * The naming pattern of the working table is: `originalschema.partman_tmp_storage_originaltablename`
+ * While data is being migrated, the `async_partitioning_in_progress` column in the `part_config` table will contain a value that relates to the most recent set of data that has been moved. While this column has a value, and during the running of this procedure, all maintenance for that partition set will be skipped (a warning is left in the PostgreSQL logs). To resume normal maintenance, this column must be NULL. This will automatically be set to NULL after completion of each child table.
+ * Since a real table is used to migrate data, the state of a migration is preserved between multiple runnings of this procedure. But as stated in the previous bullet, all normal partition maintenance for the partition set will be skipped while a partition set is left in a state where all the data for a given child table has not been fully moved to the target child table.
+ * `p_parent_table` - Parent table of an already created partition set.
+ * `p_loop_count` - How many times to loop through the value given for p_interval. See above bullet points for important information for what this loop count actually means when using this procedure. If not set, all data in the default table will be partitioned in a single run of the procedure.
+ * `p_interval` - Parameter that sets the interval size of how many rows will be committed in a single committed transaction. See above bullet points for further explanations of how this parameter is used.
+ * `p_lock_wait` - Parameter that is passed directly through to the underlying partition_data_*() function. Number of seconds to wait on rows that may be locked by another transaction. Default is to wait forever (0).
+ * `p_lock_wait_tries` - Parameter to set how many times the procedure will attempt waiting the amount of time set for p_lock_wait. Default is 10 tries.
+ * `p_wait` - Cause the procedure to pause for a given number of seconds between commits (batches) to reduce write load
+ * `p_order` -  Same as the p_order option in the called partitioning function
+ * `p_source_table` - Same as the p_source_table option in the called partitioning function
+ * `p_ignored_columns` - This option allows for filtering out specific columns when moving data from the default/parent to the proper child table(s). This is generally only required when using columns with a GENERATED ALWAYS value since directly inserting a value would fail when moving the data. Value is a text array of column names.
+ * `p_quiet` - Procedures cannot return values, so by default it emits NOTICE's to show progress. Set this option to silence these notices.
+
+
 
 
 <a id="create_partition_time"></a>
@@ -754,11 +811,11 @@ Stores all configuration data for partition sets managed by the extension.
     , undo_in_progress boolean NOT NULL DEFAULT false
     , inherit_privileges boolean DEFAULT false
     , constraint_valid boolean DEFAULT true NOT NULL
-    , subscription_refresh text
     , ignore_default_data boolean NOT NULL DEFAULT true
     , maintenance_order int DEFAULT NULL
     , retention_keep_publication boolean NOT NULL DEFAULT false
     , maintenance_last_run timestamptz
+    , async_partitioning_in_progress text
 
  - `parent_table`
     - Parent table of the partition set
@@ -814,8 +871,6 @@ Stores all configuration data for partition sets managed by the extension.
     - Sets whether to inherit the ownership/privileges of the parent table to all child tables. Defaults to false and should only be necessary if you need direct access to child tables, by-passing the parent table.
   - `constraint_valid`
     - Boolean value that allows the additional constraints that pg_partman can manage for you to be created as NOT VALID. See "Constraint Exclusion" section at the beginning for more details on these constraints. This can allow maintenance to run much quicker on large partition sets since the existing data is not validated before additing the constraint. Newly inserted data is validated, so this is a perfectly safe option to set for data integrity. Note that constraint exclusion WILL NOT work until the constraints are validated. Defaults to true so that constraints are created as VALID. Set to false to set new constraints as NOT VALID.
-  - `subscription_refresh`
-    - Name of a logical replication subscription to refresh when maintenance runs. If the partition set is subscribed to a publication that will be adding/removing tables and you need your partition set to be aware of these changes, you must name that subscription with this option. Otherwise the subscription will never become aware of the new tables added to the publisher unless you are refreshing the subscription via some other means. See the PG documentation for ALTER SUBSCRIPTION for more info on refreshing subscriptions - https://www.postgresql.org/docs/current/sql-altersubscription.html
  - `ignore_default_data`
     - By default, maintenance will ignore data in the default table when determining whether a new child table should be made. This means that if data is in the default and new child table would contain that data, an error will be thrown. If you need maintenance to acknowledge data in the default to fix a maintenance issue, this can be set to false. Note this can cause gaps in child table coverage, which can made data going into the default even worse, so it should not be left enabled once maintenance issues have been fixed.
  - `maintenance_order`
@@ -827,6 +882,8 @@ Stores all configuration data for partition sets managed by the extension.
     - Default value is false
  - maintenance_last_run
     - Timestamp of the last successful run of maintenance for this partition set. Can be useful as a monitoring metric to ensure partition maintenance is running properly.
+ - async_partitioning_in_progress
+    - This column is used to track if an asynchronous partitioning process has been started. It is a text field that contains the value related to the last block of data that was processed. If NOT NULL, all regular maintenance for this table will be stopped until the async partitioning process has been completed successfully. See `partition_data_async()` for more information.
 
 
 <a id="part_config_sub"></a>
